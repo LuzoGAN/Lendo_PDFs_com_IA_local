@@ -1,26 +1,15 @@
-pip install langchain chromadb pypdf pytest chromadb --user
-
-pip install -U langchain-community
-
-pip install chromadb --user
-
+import argparse
+import os
+import shutil
+from langchain.document_loaders.pdf import PyPDFDirectoryLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.llms.ollama import Ollama
-import argparse
+from langchain.schema.document import Document
+from langchain.vectorstores.chroma import Chroma
 
 CHROMA_PATH = "chroma"
-DATA_PATH = r"C:\Users\Notebook\Downloads\data"
-
-#Para carregar os dados dos PDF como dados para o modelo
-from langchain.document_loaders.pdf import PyPDFDirectoryLoader
-
-def load_documents():
-  document_loader = PyPDFDirectoryLoader(DATA_PATH)
-  return document_loader.load()
-
-# Visualizando o primteiro dado, cada PDF está como um único bloco
-documents = load_documents()
-print(documents[0])
+DATA_PATH = r"C:\Users\performance\Downloads\data"
 
 # Divindo os blocos
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -34,10 +23,6 @@ def split_documents(documents: list[Document]):
       is_separator_regex=False
   )
   return text_splitter.split_documents(documents)
-
-#documents = load_documents()
-chunks = split_documents(documents)
-print(chunks[0])
 
 from langchain_community.embeddings.ollama import OllamaEmbeddings
 
@@ -56,71 +41,16 @@ def add_to_chroma(chunks: list[Document]):
   db.add_documents(new_chunks, ids=new_chunk_ids)
   db.persist()
 
-  # Para criar index
-
-  def calculate_chunk_ids(chunks):
-      last_page_id = None
-      current_chunk_index = 0
-
-      for chunk in chunks:
-          source = chunk.metadata.get('source')
-          page = chunk.metadata.get('page')
-          current_page_id = f'{source}:{page}'
-
-          if current_page_id == last_page_id:
-              current_chunk_index += 1
-          else:
-              current_chunk_index = 0
-
-          chunk_id = f'{current_page_id}:{current_chunk_index}'
-          last_page_id = current_page_id
-
-          # Adicionando o chunk ao meta-data
-          chunk.metadata['id'] = chunk_id
-
-          return chunks
-
 from langchain.vectorstores.chroma import Chroma
 
 db = Chroma(
     persist_directory=CHROMA_PATH,
 )
 
-def add_to_chroma(chunks: list[Document]):
-    # Carregando databse que já existe
-    db = Chroma(
-        persist_directory=CHROMA_PATH, embedding_function=get_embedding_function()
-    )
-
-    # Calculando os IDS da pagina
-    chunks_with_ids = calculate_chunk_ids(chunks)
-
-    # Adicionando ou atualizando os dados
-    existing_items = db.get(include=[])
-    existing_ids = set(existing_items["ids"])
-    print(f"Numeros de documentos no DB: {len(existing_ids)}")
-
-    # Adicionando somente documents que não tenham no banco de dados
-    new_chunks = []
-    for chunk in chunks_with_ids:
-        if chunk.metadata["id"] not in existing_ids:
-            new_chunks.append(chunk)
-
-    if len(new_chunks):
-        print(f"👉 Adicionando documentos: {len(new_chunks)}")
-        new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
-        db.add_documents(new_chunks, ids=new_chunk_ids)
-        db.persist()
-    else:
-        print("✅ Sem documentos para adicionar")
-
-
 def query_rag(query_text: str):
-    # Prepare the DB.
     embedding_function = get_embedding_function()
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
-    # Search the DB.
     results = db.similarity_search_with_score(query_text, k=5)
 
     print(results)
@@ -151,27 +81,7 @@ Responda à pergunta com base apenas no seguinte contexto:
 Responda à pergunta com base no contexto acima: {question}
 """
 
-query_rag('Em qual laboratório foi feitos os testes?')
-
-import argparse
-import os
-import shutil
-from langchain.document_loaders.pdf import PyPDFDirectoryLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.schema.document import Document
-#from get_embedding_function import get_embedding_function
-from langchain.vectorstores.chroma import Chroma
-
-
-CHROMA_PATH = "chroma"
-
-
 def main():
-
-    # Check if the database should be cleared (using the --clear flag).
-
-
-    # Create (or update) the data store.
     documents = load_documents()
     chunks = split_documents(documents)
     add_to_chroma(chunks)
@@ -180,7 +90,6 @@ def main():
 def load_documents():
     document_loader = PyPDFDirectoryLoader(DATA_PATH)
     return document_loader.load()
-
 
 def split_documents(documents: list[Document]):
     text_splitter = RecursiveCharacterTextSplitter(
@@ -191,40 +100,35 @@ def split_documents(documents: list[Document]):
     )
     return text_splitter.split_documents(documents)
 
-
 def add_to_chroma(chunks: list[Document]):
-    # Load the existing database.
+    # Carregando databse que já existe
     db = Chroma(
         persist_directory=CHROMA_PATH, embedding_function=get_embedding_function()
     )
 
-    # Calculate Page IDs.
+    # Calculando os IDS da pagina
     chunks_with_ids = calculate_chunk_ids(chunks)
 
-    # Add or Update the documents.
-    existing_items = db.get(include=[])  # IDs are always included by default
+    # Adicionando ou atualizando os dados
+    existing_items = db.get(include=[])
     existing_ids = set(existing_items["ids"])
-    print(f"Number of existing documents in DB: {len(existing_ids)}")
+    print(f"Numeros de documentos no DB: {len(existing_ids)}")
 
-    # Only add documents that don't exist in the DB.
+    # Adicionando somente documents que não tenham no banco de dados
     new_chunks = []
     for chunk in chunks_with_ids:
         if chunk.metadata["id"] not in existing_ids:
             new_chunks.append(chunk)
 
     if len(new_chunks):
-        print(f"👉 Adding new documents: {len(new_chunks)}")
+        print(f"👉 Adicionando documentos: {len(new_chunks)}")
         new_chunk_ids = [chunk.metadata["id"] for chunk in new_chunks]
         db.add_documents(new_chunks, ids=new_chunk_ids)
         db.persist()
     else:
-        print("✅ No new documents to add")
+        print("✅ Sem documentos para adicionar")
 
-
-def calculate_chunk_ids(chunks):
-
-    # This will create IDs like "data/monopoly.pdf:6:2"
-    # Page Source : Page Number : Chunk Index
+  def calculate_chunk_ids(chunks):
 
     last_page_id = None
     current_chunk_index = 0
@@ -234,17 +138,17 @@ def calculate_chunk_ids(chunks):
         page = chunk.metadata.get("page")
         current_page_id = f"{source}:{page}"
 
-        # If the page ID is the same as the last one, increment the index.
+        # se a página for a mesma aumenta no index.
         if current_page_id == last_page_id:
             current_chunk_index += 1
         else:
             current_chunk_index = 0
 
-        # Calculate the chunk ID.
+        # calculando chunk ID.
         chunk_id = f"{current_page_id}:{current_chunk_index}"
         last_page_id = current_page_id
 
-        # Add it to the page meta-data.
+        # adicionando ao metadata
         chunk.metadata["id"] = chunk_id
 
     return chunks
@@ -257,3 +161,5 @@ def clear_database():
 
 if __name__ == "__main__":
     main()
+
+query_rag('Em qual laboratório foi feitos os testes?')
